@@ -2,6 +2,35 @@ defmodule Chat.RoomChannel do
   use Phoenix.Channel
   require Logger
 
+  defp start_tweet_streamer do
+    configure_extwitter
+    parent = self
+
+    spawn_link fn ->
+      process_extwitter(parent)
+    end
+  end
+
+  defp process_extwitter(parent) do
+    stream = ExTwitter.stream_sample()
+    for message <- stream do
+      case message do
+        tweet = %ExTwitter.Model.Tweet{} ->
+          send(parent, {:tweet, tweet.user.name, tweet.text})
+        true -> true
+      end
+    end
+  end
+
+  defp configure_extwitter do
+    ExTwitter.configure(
+      consumer_key: System.get_env("TWITTER_CONSUMER_KEY"),
+      consumer_secret: System.get_env("TWITTER_CONSUMER_SECRET"),
+      access_token: System.get_env("TWITTER_ACCESS_TOKEN"),
+      access_token_secret: System.get_env("TWITTER_ACCESS_SECRET")
+    )
+  end
+
   @doc """
   Authorize socket to subscribe and broadcast events on this channel & topic
 
@@ -14,8 +43,11 @@ defmodule Chat.RoomChannel do
   """
   def join("rooms:lobby", message, socket) do
     Process.flag(:trap_exit, true)
-    :timer.send_interval(5000, :ping)
     send(self, {:after_join, message})
+
+    if ! socket.assigns[:tweet_streamer] do
+      assign(socket, :tweet_streamer, start_tweet_streamer)
+    end
 
     {:ok, socket}
   end
@@ -29,8 +61,13 @@ defmodule Chat.RoomChannel do
     push socket, "join", %{status: "connected"}
     {:noreply, socket}
   end
-  def handle_info(:ping, socket) do
-    push socket, "new:msg", %{user: "SYSTEM", body: "ping"}
+  # def handle_info(:ping, socket) do
+  #   push socket, "new:msg", %{user: "SYSTEM", body: "ping"}
+  #   {:noreply, socket}
+  # end
+
+  def handle_info({:tweet, name, text}, socket) do
+    broadcast! socket, "new:msg", %{user: name, body: text}
     {:noreply, socket}
   end
 
