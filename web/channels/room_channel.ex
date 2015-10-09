@@ -17,6 +17,9 @@ defmodule Chat.RoomChannel do
       case message do
         tweet = %ExTwitter.Model.Tweet{} ->
           send(parent, {:tweet, tweet.user.name, tweet.text})
+          # Need to periodically GC this process to clean up the shared binaries
+          # This is too often, need some sort of control to take care of this
+          :erlang.garbage_collect
         true -> true
       end
     end
